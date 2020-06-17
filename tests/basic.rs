@@ -50,7 +50,8 @@ fn client_server_works() {
     let (mut client, mut server) = jsonrpsee::local_raw();
     spawn_server!(server);
 
-    let v = async_std::task::block_on(Test::concat(&mut client, "hello", 5)).unwrap();
+    let client: jsonrpsee::Client = client.into();
+    let v = async_std::task::block_on(Test::concat(&client, "hello", 5)).unwrap();
     assert_eq!(v, "hello, 5");
 }
 

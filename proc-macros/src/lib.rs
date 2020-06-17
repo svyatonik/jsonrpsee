@@ -469,23 +469,19 @@ fn build_client_functions(
         let is_notification = function.is_void_ret_type();
         let function_body = if is_notification {
             quote_spanned!(function.signature.span()=>
-                client.send_notification(#rpc_method_name, #params_building).await
-                    .map_err(jsonrpsee::raw::client::RawClientError::Inner)?;
+                client.notification(#rpc_method_name, #params_building).await;
                 Ok(())
             )
         } else {
             quote_spanned!(function.signature.span()=>
-                let rq_id = client.start_request(#rpc_method_name, #params_building).await
-                    .map_err(jsonrpsee::raw::client::RawClientError::Inner)?;
-                let data = client.request_by_id(rq_id).unwrap().await?;     // TODO: don't unwrap?
-                Ok(jsonrpsee::common::from_value(data).unwrap())     // TODO: don't unwrap
+                client.request(#rpc_method_name, #params_building).await
             )
         };
 
         client_functions.push(quote_spanned!(function.signature.span()=>
             // TODO: what if there's a conflict between `client` and a param name?
-            #visibility async fn #f_name<C: jsonrpsee::transport::TransportClient>(client: &mut jsonrpsee::raw::RawClient<C> #(, #params_list)*)
-                -> core::result::Result<#ret_ty, jsonrpsee::raw::client::RawClientError<<C as jsonrpsee::transport::TransportClient>::Error>>
+            #visibility async fn #f_name(client: &jsonrpsee::Client #(, #params_list)*)
+                -> core::result::Result<#ret_ty, jsonrpsee::client::RequestError>
             where
                 #ret_ty: jsonrpsee::common::DeserializeOwned
                 #(, #params_tys: jsonrpsee::common::Serialize)*

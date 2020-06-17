@@ -70,12 +70,13 @@ fn main() {
     // Client demo.
     let transport_client =
         jsonrpsee::transport::http::HttpTransportClient::new("http://127.0.0.1:8000");
-    let mut client = jsonrpsee::raw::RawClient::new(transport_client);
+    let client = jsonrpsee::raw::RawClient::new(transport_client);
+    let client: jsonrpsee::Client = client.into();
     let v = async_std::task::block_on(async {
-        Health::test_notif(&mut client, "notif_string", 192)
+        Health::test_notif(&client, "notif_string", 192)
             .await
             .unwrap();
-        Health::system_name(&mut client, "hello", 5).await.unwrap()
+        Health::system_name(&client, "hello", 5).await.unwrap()
     });
     println!("{:?}", v);
 }

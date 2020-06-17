@@ -84,7 +84,7 @@
 //! let result = async_std::task::block_on(async {
 //!     let mut transport = jsonrpsee::transport::http::HttpTransportClient::new("http://localhost:8000");
 //!     let mut client = jsonrpsee::raw::RawClient::new(transport);
-//!     System::system_name(&mut client).await
+//!     System::system_name(&client.into()).await
 //! });
 //!
 //! println!("system_name = {:?}", result);

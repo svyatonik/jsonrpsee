@@ -50,11 +50,10 @@ fn main() {
             jsonrpsee::transport::ws::WsTransportClient::new("wss://kusama-rpc.polkadot.io")
                 .await
                 .unwrap();
-        let mut raw_client = jsonrpsee::raw::RawClient::new(transport);
-        let v = System::system_name(&mut raw_client).await.unwrap();
+        let raw_client = jsonrpsee::raw::RawClient::new(transport);
+        let client: jsonrpsee::Client = raw_client.into();
+        let v = System::system_name(&client).await.unwrap();
         println!("{:?}", v);
-
-        let client: Client = raw_client.into();
 
         let mut sub: Subscription<Header> = client
             .subscribe(
