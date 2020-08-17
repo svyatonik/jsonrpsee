@@ -26,7 +26,7 @@
 
 use crate::{common, transport::TransportClient};
 
-use futures::{channel::mpsc, channel::oneshot, prelude::*};
+use futures::{channel::mpsc, prelude::*};
 use std::{fmt, io, pin::Pin, thread};
 use thiserror::Error;
 

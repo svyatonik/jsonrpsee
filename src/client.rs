@@ -25,7 +25,7 @@
 // DEALINGS IN THE SOFTWARE.
 
 use crate::common::{self, JsonValue};
-use crate::raw::{client::RawClientEvent, RawClient, RawClientRequestId};
+use crate::raw::{client::RawClientEvent, RawClientError, RawClient, RawClientRequestId};
 use crate::transport::TransportClient;
 
 use futures::{
@@ -70,6 +70,9 @@ pub enum RequestError {
     /// Failed to parse the data that the server sent back to us.
     #[error("Parse error: {0}")]
     ParseError(#[source] common::ParseError),
+    /// Background thread has been stopped. Client is in invalid state.
+    #[error("Background thread has stopped. Client is in invalid state")]
+    BackgroundThreadStopped,
 }
 
 /// Message that the [`Client`] can send to the background task.
@@ -155,7 +158,7 @@ impl Client {
         Ret: common::DeserializeOwned,
     {
         let (send_back_tx, send_back_rx) = oneshot::channel();
-        let _ = self
+        self
             .to_back
             .clone()
             .send(FrontToBack::StartRequest {
@@ -163,7 +166,8 @@ impl Client {
                 params: params.into(),
                 send_back: send_back_tx,
             })
-            .await;
+            .await
+            .map_err(|_| RequestError::BackgroundThreadStopped)?;
 
         // TODO: send a `ChannelClosed` message if we close the channel unexpectedly
 
@@ -404,6 +408,19 @@ where
             Either::Right(Err(e)) => {
                 // TODO: https://github.com/paritytech/jsonrpsee/issues/67
                 log::error!("Client Error: {:?}", e);
+                match e {
+                    RawClientError::Inner(Some(request_id), e) => {
+                        if let Some(send_back) = ongoing_requests.remove(&request_id) {
+                            let _ = send_back.send(Err(RequestError::TransportError(Box::new(e))));
+                        }
+                    },
+                    RawClientError::RequestError(Some(request_id), e) => {
+                        if let Some(send_back) = ongoing_requests.remove(&request_id) {
+                            let _ = send_back.send(Err(RequestError::Request(e)));
+                        }
+                    },
+                    _ => return,
+                }
             }
         }
     }
