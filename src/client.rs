@@ -25,7 +25,7 @@
 // DEALINGS IN THE SOFTWARE.
 
 use crate::common::{self, JsonValue};
-use crate::raw::{client::RawClientEvent, RawClient, RawClientRequestId};
+use crate::raw::{client::RawClientEvent, RawClientError, RawClient, RawClientRequestId};
 use crate::transport::TransportClient;
 
 use futures::{
@@ -173,7 +173,7 @@ impl Client {
             Err(_) => {
                 let err = io::Error::new(io::ErrorKind::Other, "background task closed");
                 return Err(RequestError::TransportError(Box::new(err)));
-            }
+            },
         };
 
         common::from_value(json_value).map_err(RequestError::ParseError)
@@ -404,6 +404,31 @@ where
             Either::Right(Err(e)) => {
                 // TODO: https://github.com/paritytech/jsonrpsee/issues/67
                 log::error!("Client Error: {:?}", e);
+
+                // the code below doesn't work with subscriptions!!!
+
+                match e {
+                    RawClientError::Inner(Some(request_id), e) => {
+                        if let Some(send_back) = ongoing_requests.remove(&request_id) {
+                            let _ = send_back.send(Err(RequestError::TransportError(Box::new(e))));
+                        }
+                    },
+                    RawClientError::RequestError(Some(request_id), e) => {
+                        if let Some(send_back) = ongoing_requests.remove(&request_id) {
+                            let _ = send_back.send(Err(RequestError::Request(e)));
+                        }
+                    },
+                    _ => {
+                        // This logic is very fragile && should be used with care - we treat all errors
+                        // that have no associated requests as fatal, thus making Client unusable after
+                        // it happens. Never use it unless you're ready to process this in your app.
+                        //
+                        // All pending requests would fail because their oneshot senders are dropped.
+                        //
+                        // All new requests would fail because their from_front is dropped.
+                        return
+                    },
+                }
             }
         }
     }
