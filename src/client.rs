@@ -404,6 +404,9 @@ where
             Either::Right(Err(e)) => {
                 // TODO: https://github.com/paritytech/jsonrpsee/issues/67
                 log::error!("Client Error: {:?}", e);
+
+                // the code below doesn't work with subscriptions!!!
+
                 match e {
                     RawClientError::Inner(Some(request_id), e) => {
                         if let Some(send_back) = ongoing_requests.remove(&request_id) {
@@ -415,7 +418,16 @@ where
                             let _ = send_back.send(Err(RequestError::Request(e)));
                         }
                     },
-                    _ => return,
+                    _ => {
+                        // This logic is very fragile && should be used with care - we treat all errors
+                        // that have no associated requests as fatal, thus making Client unusable after
+                        // it happens. Never use it unless you're ready to process this in your app.
+                        //
+                        // All pending requests would fail because their oneshot senders are dropped.
+                        //
+                        // All new requests would fail because their from_front is dropped.
+                        return
+                    },
                 }
             }
         }
