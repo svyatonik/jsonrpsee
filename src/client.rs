@@ -70,9 +70,6 @@ pub enum RequestError {
     /// Failed to parse the data that the server sent back to us.
     #[error("Parse error: {0}")]
     ParseError(#[source] common::ParseError),
-    /// Background thread has been stopped. Client is in invalid state.
-    #[error("Background thread has stopped. Client is in invalid state")]
-    BackgroundThreadStopped,
 }
 
 /// Message that the [`Client`] can send to the background task.
@@ -158,7 +155,7 @@ impl Client {
         Ret: common::DeserializeOwned,
     {
         let (send_back_tx, send_back_rx) = oneshot::channel();
-        self
+        let _ = self
             .to_back
             .clone()
             .send(FrontToBack::StartRequest {
@@ -166,8 +163,7 @@ impl Client {
                 params: params.into(),
                 send_back: send_back_tx,
             })
-            .await
-            .map_err(|_| RequestError::BackgroundThreadStopped)?;
+            .await;
 
         // TODO: send a `ChannelClosed` message if we close the channel unexpectedly
 
@@ -177,7 +173,7 @@ impl Client {
             Err(_) => {
                 let err = io::Error::new(io::ErrorKind::Other, "background task closed");
                 return Err(RequestError::TransportError(Box::new(err)));
-            }
+            },
         };
 
         common::from_value(json_value).map_err(RequestError::ParseError)
