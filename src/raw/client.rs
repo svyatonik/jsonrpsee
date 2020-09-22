@@ -201,9 +201,9 @@ pub struct RawClientActiveSubscription<'a, R> {
 #[derive(Debug)]
 pub enum RawClientError<E> {
     /// Error in the raw client.
-    Inner(E),
+    Inner(Option<RawClientRequestId>, E),
     /// RawServer returned an error for our request.
-    RequestError(common::Error),
+    RequestError(Option<RawClientRequestId>, common::Error),
     /// RawServer has sent back a subscription ID that has already been used by an earlier
     /// subscription.
     DuplicateSubscriptionId,
@@ -371,9 +371,10 @@ where
                 while events_queue_loopkup < self.events_queue.len() {
                     match &self.events_queue[events_queue_loopkup] {
                         RawClientEvent::Response { request_id, .. } if *request_id == rq_id => {
+                            let request_id = request_id.clone();
                             return match self.events_queue.remove(events_queue_loopkup) {
                                 Some(RawClientEvent::Response { result, .. }) => {
-                                    result.map_err(RawClientError::RequestError)
+                                    result.map_err(|e| RawClientError::RequestError(Some(request_id), e))
                                 }
                                 _ => unreachable!(),
                             }
@@ -432,7 +433,7 @@ where
             .inner
             .next_response()
             .await
-            .map_err(RawClientError::Inner)?;
+            .map_err(|e| RawClientError::Inner(None, e))?;
 
         match result {
             common::Response::Single(rp) => self.process_response(rp)?,
@@ -640,7 +641,7 @@ where
                             }),
                             Some(RawClientEvent::SubscriptionResponse {
                                 result: Err(err), ..
-                            }) => Err(RawClientError::RequestError(err)),
+                            }) => Err(RawClientError::RequestError(Some(self.id), err)),
                             _ => unreachable!(),
                         }
                     }
@@ -746,8 +747,8 @@ where
 {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            RawClientError::Inner(ref err) => Some(err),
-            RawClientError::RequestError(ref err) => Some(err),
+            RawClientError::Inner(_, ref err) => Some(err),
+            RawClientError::RequestError(_, ref err) => Some(err),
             RawClientError::DuplicateSubscriptionId => None,
             RawClientError::SubscriptionIdParseError => None,
             RawClientError::UnknownRequestId => None,
@@ -763,8 +764,8 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            RawClientError::Inner(ref err) => write!(f, "Error in the raw client: {}", err),
-            RawClientError::RequestError(ref err) => write!(f, "Server returned error: {}", err),
+            RawClientError::Inner(_, ref err) => write!(f, "Error in the raw client: {}", err),
+            RawClientError::RequestError(_, ref err) => write!(f, "Server returned error: {}", err),
             RawClientError::DuplicateSubscriptionId => write!(
                 f,
                 "Server has responded with a subscription ID that's already in use"
