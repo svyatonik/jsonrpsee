@@ -29,7 +29,7 @@ extern crate proc_macro;
 use inflector::Inflector as _;
 use proc_macro::TokenStream;
 use quote::{quote, quote_spanned};
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use syn::spanned::Spanned as _;
 
 mod api_def;
@@ -117,12 +117,12 @@ fn build_api(api: api_def::ApiDefinition) -> Result<proc_macro2::TokenStream, sy
         .iter()
         .filter_map(|gp| {
             if let syn::GenericParam::Type(tp) = gp {
-                Some(tp.ident.clone())
+                Some((tp.ident.clone(), syn::GenericParam::Type(tp.clone())))
             } else {
                 None
             }
         })
-        .collect::<HashSet<_>>();
+        .collect::<HashMap<_, _>>();
 
     let visibility = &api.visibility;
 
@@ -187,20 +187,20 @@ fn build_api(api: api_def::ApiDefinition) -> Result<proc_macro2::TokenStream, sy
         let mut tmp_to_rq = Vec::new();
 
         struct GenericParams {
-            generics: HashSet<syn::Ident>,
-            types: HashSet<syn::Ident>,
+            generics: HashMap<syn::Ident, syn::GenericParam>,
+            types: HashMap<syn::Ident, syn::GenericParam>,
         }
         impl<'ast> syn::visit::Visit<'ast> for GenericParams {
             fn visit_ident(&mut self, ident: &'ast syn::Ident) {
-                if self.generics.contains(ident) {
-                    self.types.insert(ident.clone());
+                if let Some(gp) = self.generics.get(ident) {
+                    self.types.insert(ident.clone(), gp.clone());
                 }
             }
         }
 
         let mut generic_params = GenericParams {
             generics,
-            types: HashSet::new(),
+            types: HashMap::new(),
         };
 
         for function in &api.definitions {
@@ -287,11 +287,19 @@ fn build_api(api: api_def::ApiDefinition) -> Result<proc_macro2::TokenStream, sy
             }
         }
 
-        let params_tys = generic_params.types.iter();
+        let tmp_decl_generics = if generic_params.types.is_empty() {
+            quote!()
+        } else {
+            let params_tys = generic_params.types.values();
+            quote_spanned!(api.name.span()=>
+                <#(#params_tys,)*>
+            )
+        };
 
         let tmp_generics = if generic_params.types.is_empty() {
             quote!()
         } else {
+            let params_tys = generic_params.types.keys();
             quote_spanned!(api.name.span()=>
                 <#(#params_tys,)*>
             )
@@ -299,7 +307,7 @@ fn build_api(api: api_def::ApiDefinition) -> Result<proc_macro2::TokenStream, sy
 
         let on_request = quote_spanned!(api.name.span()=> {
             #[allow(unused)]    // The enum might be empty
-            enum Tmp #tmp_generics {
+            enum Tmp #tmp_decl_generics {
                 #(#tmp_variants,)*
             }
 
@@ -322,7 +330,7 @@ fn build_api(api: api_def::ApiDefinition) -> Result<proc_macro2::TokenStream, sy
             // TODO: we received an unknown notification; log this?
         });
 
-        let params_tys = generic_params.types.iter();
+        let params_tys = generic_params.types.keys();
 
         quote_spanned!(api.name.span()=>
             #visibility async fn next_request(server: &'a mut jsonrpsee::raw::RawServer<R, I>) -> core::result::Result<#enum_name #ty_generics, std::io::Error>
@@ -375,7 +383,7 @@ fn build_client_impl(api: &api_def::ApiDefinition) -> Result<proc_macro2::TokenS
 
     let (impl_generics_org, _, where_clause_org) = api.generics.split_for_impl();
     let lifetimes_org = api.generics.lifetimes();
-    let type_params_org = api.generics.type_params();
+    let type_params_org = api.generics.type_params().map(|param| &param.ident);
     let const_params_org = api.generics.const_params();
 
     let client_functions = build_client_functions(&api)?;
