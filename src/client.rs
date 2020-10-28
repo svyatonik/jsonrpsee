@@ -385,7 +385,7 @@ where
             Either::Right(Ok(RawClientEvent::SubscriptionNotif { request_id, result })) => {
                 // TODO: unsubscribe if channel is closed
                 let (notifs_tx, _) = active_subscriptions.get_mut(&request_id).unwrap();
-                if notifs_tx.send(result).await.is_err() {
+                if let Some(Err(_)) = notifs_tx.send(result).now_or_never() {
                     let (_, unsubscribe) = active_subscriptions.remove(&request_id).unwrap();
                     client
                         .subscription_by_id(request_id)
